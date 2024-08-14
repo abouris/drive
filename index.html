@@ -1,0 +1,308 @@
+<html><head><base href="https://synthwave-driving-simulator.com/"><title>Synthwave Infinite Drive - Amélioré V2</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+body, html {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  font-family: 'Orbitron', sans-serif;
+  background: #120458;
+}
+#loading {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: #120458;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  color: #ff00ff;
+  font-size: 2em;
+  z-index: 1000;
+}
+#speedometer {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  font-size: 2em;
+  color: #00ffff;
+  text-shadow: 0 0 10px #00ffff;
+}
+#controls {
+  position: fixed;
+  bottom: 20px;
+  left: 20px;
+  color: #00ffff;
+  text-shadow: 0 0 10px #00ffff;
+}
+</style>
+<script type="text/javascript" nonce="9353af7a043347729a43834c508" src="//local.adguard.org?ts=1723452792512&amp;type=content-script&amp;dmn=party.websim.ai&amp;url=https%3A%2F%2Fparty.websim.ai%2Fapi%2Fv1%2Fsites%2FrrBArUwGgP73satBB%2Fhtml%3Fraw%3Dtrue&amp;app=com.google.Chrome&amp;css=3&amp;js=1&amp;rel=1&amp;rji=1&amp;sbe=1"></script>
+<script type="text/javascript" nonce="9353af7a043347729a43834c508" src="//local.adguard.org?ts=1723452792512&amp;name=AdGuard%20Assistant&amp;name=AdGuard%20Extra&amp;type=user-script"></script><link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
+</head>
+<body>
+<div id="loading">Chargement du monde synthwave...</div>
+<div id="speedometer">0 km/h</div>
+<div id="controls">
+  Contrôles:<br>
+  ↑: Accélérer<br>
+  ↓: Freiner<br>
+  ←→: Tourner
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+let scene, camera, renderer, car, road, trees = [], buildings = [], speed = 0, steering = 0;
+const ROAD_WIDTH = 20;
+const ROAD_LENGTH = 2000;
+
+function init() {
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  document.body.appendChild(renderer.domElement);
+
+  // Éclairage
+  const ambientLight = new THREE.AmbientLight(0x404040);
+  scene.add(ambientLight);
+  const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
+  scene.add(directionalLight);
+
+  // Ciel
+  const skyGeometry = new THREE.SphereGeometry(1000, 32, 32);
+  const skyMaterial = new THREE.ShaderMaterial({
+    uniforms: {
+      topColor: { value: new THREE.Color(0x120458) },
+      bottomColor: { value: new THREE.Color(0xff6ac1) },
+    },
+    vertexShader: `
+      varying vec3 vWorldPosition;
+      void main() {
+        vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+        vWorldPosition = worldPosition.xyz;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform vec3 topColor;
+      uniform vec3 bottomColor;
+      varying vec3 vWorldPosition;
+      void main() {
+        float h = normalize(vWorldPosition + vec3(0.0, 1.0, 0.0)).y;
+        gl_FragColor = vec4(mix(bottomColor, topColor, max(h, 0.0)), 1.0);
+      }
+    `,
+    side: THREE.BackSide
+  });
+  const sky = new THREE.Mesh(skyGeometry, skyMaterial);
+  scene.add(sky);
+
+  // Soleil
+  const sunGeometry = new THREE.CircleGeometry(50, 32);
+  const sunMaterial = new THREE.MeshBasicMaterial({ color: 0xff6ac1 });
+  const sun = new THREE.Mesh(sunGeometry, sunMaterial);
+  sun.position.set(0, 100, -500);
+  scene.add(sun);
+
+  // Route
+  const roadGeometry = new THREE.PlaneGeometry(ROAD_WIDTH, ROAD_LENGTH);
+  const roadMaterial = new THREE.MeshPhongMaterial({ 
+    color: 0x1a1a1a,
+    shininess: 10
+  });
+  road = new THREE.Mesh(roadGeometry, roadMaterial);
+  road.rotation.x = -Math.PI / 2;
+  scene.add(road);
+
+  // Lignes de la route
+  const lineGeometry = new THREE.PlaneGeometry(0.2, ROAD_LENGTH);
+  const lineMaterial = new THREE.MeshBasicMaterial({ color: 0xffff00 });
+  const leftLine = new THREE.Mesh(lineGeometry, lineMaterial);
+  leftLine.position.set(-ROAD_WIDTH/4, 0.01, 0);
+  leftLine.rotation.x = -Math.PI / 2;
+  scene.add(leftLine);
+  const rightLine = leftLine.clone();
+  rightLine.position.set(ROAD_WIDTH/4, 0.01, 0);
+  scene.add(rightLine);
+
+  // Voiture améliorée
+  car = new THREE.Group();
+  
+  // Carrosserie
+  const bodyGeometry = new THREE.BoxGeometry(2, 0.5, 4);
+  const bodyMaterial = new THREE.MeshPhongMaterial({ 
+    color: 0xff00ff,
+    shininess: 100,
+    specular: 0xffffff
+  });
+  const carBody = new THREE.Mesh(bodyGeometry, bodyMaterial);
+  carBody.position.y = 0.5;
+  car.add(carBody);
+
+  // Toit
+  const roofGeometry = new THREE.BoxGeometry(1.8, 0.4, 2);
+  const roofMaterial = new THREE.MeshPhongMaterial({ 
+    color: 0xcc00cc,
+    shininess: 100,
+    specular: 0xffffff
+  });
+  const roof = new THREE.Mesh(roofGeometry, roofMaterial);
+  roof.position.y = 0.95;
+  roof.position.z = -0.5;
+  car.add(roof);
+
+  // Roues
+  const wheelGeometry = new THREE.CylinderGeometry(0.3, 0.3, 0.2, 32);
+  const wheelMaterial = new THREE.MeshPhongMaterial({ color: 0x333333 });
+  const wheelPositions = [
+    { x: -1, y: 0, z: 1.5 },
+    { x: 1, y: 0, z: 1.5 },
+    { x: -1, y: 0, z: -1.5 },
+    { x: 1, y: 0, z: -1.5 }
+  ];
+  wheelPositions.forEach(pos => {
+    const wheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
+    wheel.position.set(pos.x, pos.y, pos.z);
+    wheel.rotation.z = Math.PI / 2;
+    car.add(wheel);
+  });
+
+  // Phares
+  const headlightGeometry = new THREE.SphereGeometry(0.1, 16, 16);
+  const headlightMaterial = new THREE.MeshPhongMaterial({ 
+    color: 0xffffff, 
+    emissive: 0xffffff,
+    emissiveIntensity: 1
+  });
+  const leftHeadlight = new THREE.Mesh(headlightGeometry, headlightMaterial);
+  leftHeadlight.position.set(-0.8, 0.5, 2);
+  car.add(leftHeadlight);
+  const rightHeadlight = leftHeadlight.clone();
+  rightHeadlight.position.set(0.8, 0.5, 2);
+  car.add(rightHeadlight);
+
+  car.position.set(0, 0.3, -5);
+  scene.add(car);
+
+  camera.position.set(0, 3, 5);
+  camera.lookAt(car.position);
+
+  generateEnvironment();
+
+  document.addEventListener('keydown', onKeyDown);
+  document.addEventListener('keyup', onKeyUp);
+
+  animate();
+  document.getElementById('loading').style.display = 'none';
+}
+
+function generateEnvironment() {
+  // Arbres holographiques
+  const treeGeometry = new THREE.ConeGeometry(1, 4, 6);
+  const treeMaterial = new THREE.MeshPhongMaterial({ 
+    color: 0x00ff00,
+    transparent: true,
+    opacity: 0.6,
+    shininess: 100
+  });
+  for (let i = 0; i < 500; i++) {
+    const tree = new THREE.Mesh(treeGeometry, treeMaterial);
+    tree.position.set(Math.random() * 400 - 200, 2, Math.random() * ROAD_LENGTH - ROAD_LENGTH/2);
+    scene.add(tree);
+    trees.push(tree);
+  }
+
+  // Bâtiments futuristes
+  const buildingGeometries = [
+    new THREE.BoxGeometry(5, 20, 5),
+    new THREE.CylinderGeometry(3, 3, 30, 8),
+    new THREE.ConeGeometry(5, 20, 4)
+  ];
+  const buildingMaterial = new THREE.MeshPhongMaterial({ 
+    color: 0x00ffff,
+    shininess: 100,
+    specular: 0xffffff
+  });
+  for (let i = 0; i < 200; i++) {
+    const geometry = buildingGeometries[Math.floor(Math.random() * buildingGeometries.length)];
+    const building = new THREE.Mesh(geometry, buildingMaterial);
+    building.position.set(Math.random() * 400 - 200, 10, Math.random() * ROAD_LENGTH - ROAD_LENGTH/2);
+    scene.add(building);
+    buildings.push(building);
+  }
+
+  // Grille au sol
+  const gridHelper = new THREE.GridHelper(2000, 200, 0xff00ff, 0x00ffff);
+  scene.add(gridHelper);
+}
+
+function onKeyDown(event) {
+  switch(event.keyCode) {
+    case 38: // up arrow
+      speed = Math.min(speed + 0.1, 2);
+      break;
+    case 40: // down arrow
+      speed = Math.max(speed - 0.1, -1);
+      break;
+    case 37: // left arrow
+      steering = Math.max(steering - 0.03, -0.5);
+      break;
+    case 39: // right arrow
+      steering = Math.min(steering + 0.03, 0.5);
+      break;
+  }
+}
+
+function onKeyUp(event) {
+  switch(event.keyCode) {
+    case 37: // left arrow
+    case 39: // right arrow
+      steering = 0;
+      break;
+  }
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+
+  // Appliquer le mouvement et la direction
+  car.position.z -= speed;
+  car.position.x += steering * speed;
+
+  // Rotation de la voiture
+  car.rotation.y = steering;
+
+  // Limiter la position de la voiture sur la route
+  car.position.x = Math.max(Math.min(car.position.x, ROAD_WIDTH/2 - 1), -ROAD_WIDTH/2 + 1);
+
+  camera.position.x = car.position.x;
+  camera.position.z = car.position.z + 7;
+  camera.lookAt(car.position);
+
+  // Déplacement infini de la route et des objets
+  if (car.position.z < -ROAD_LENGTH/2) {
+    car.position.z += ROAD_LENGTH;
+    trees.forEach(tree => tree.position.z += ROAD_LENGTH);
+    buildings.forEach(building => building.position.z += ROAD_LENGTH);
+  } else if (car.position.z > ROAD_LENGTH/2) {
+    car.position.z -= ROAD_LENGTH;
+    trees.forEach(tree => tree.position.z -= ROAD_LENGTH);
+    buildings.forEach(building => building.position.z -= ROAD_LENGTH);
+  }
+
+  document.getElementById('speedometer').textContent = Math.abs(Math.round(speed * 50)) + ' km/h';
+
+  renderer.render(scene, camera);
+}
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+init();
+</script>
+</body></html>
